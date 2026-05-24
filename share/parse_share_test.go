@@ -238,6 +238,18 @@ func TestConvertShareLinksToXrayJson_VlessWSAndTLS(t *testing.T) {
 	assert.Contains(t, []string(*ss.TLSSettings.ALPN), "h2")
 }
 
+func TestConvertShareLinksToXrayJson_VlessXHTTPAllowInsecure(t *testing.T) {
+	link := "vless://" + testShareUUID + "@edge.example:443?encryption=none&type=xhttp&security=tls&sni=edge.example&allowInsecure=1"
+	cfg, err := ConvertShareLinksToXrayJson(link)
+	require.NoError(t, err)
+	require.Len(t, cfg.OutboundConfigs, 1)
+	ss := cfg.OutboundConfigs[0].StreamSetting
+	require.NotNil(t, ss)
+	assert.Equal(t, "tls", ss.Security)
+	require.NotNil(t, ss.TLSSettings)
+	assert.True(t, ss.TLSSettings.AllowInsecure)
+}
+
 func TestConvertShareLinksToXrayJson_VlessReality(t *testing.T) {
 	pbk := "ZXYAbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCD"
 	link := "vless://" + testShareUUID + "@reality.example:443?encryption=none&security=reality&type=tcp&sni=reality.example&pbk=" +

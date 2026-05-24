@@ -47,7 +47,7 @@ func (proxy xrayShareLink) parseSecurityFromURL(link *url.URL, streamSettings *c
 		tlsSettings.ALPN = new(conf.StringList(strings.Split(alpn, ",")))
 	}
 
-	if query.Get("insecure") == "1" {
+	if query.Get("insecure") == "1" || query.Get("allowInsecure") == "1" {
 		tlsSettings.AllowInsecure = true
 	}
 
