@@ -69,6 +69,11 @@ type runtimeDiagnosticsRequest struct {
 	BalancerTag string `json:"balancerTag,omitempty"`
 }
 
+type trafficStatsRequest struct {
+	BalancerTag string `json:"balancerTag,omitempty"`
+	InboundTag  string `json:"inboundTag,omitempty"`
+}
+
 // Ping Xray config and get the delay of its outbound.
 func Ping(base64Text string) string {
 	var response nodep.CallResponse[int64]
@@ -119,6 +124,27 @@ func GetRuntimeDiagnostics(base64Text string) string {
 		return response.EncodeToBase64("", err)
 	}
 	return response.EncodeToBase64(diagnostics, nil)
+}
+
+// Get traffic stats for the active Xray instance without using metrics HTTP server.
+func GetTrafficStats(base64Text string) string {
+	var response nodep.CallResponse[string]
+	req, err := base64.StdEncoding.DecodeString(base64Text)
+	if err != nil {
+		return response.EncodeToBase64("", err)
+	}
+
+	var request trafficStatsRequest
+	err = json.Unmarshal(req, &request)
+	if err != nil {
+		return response.EncodeToBase64("", err)
+	}
+
+	stats, err := xray.GetTrafficStats(request.BalancerTag, request.InboundTag)
+	if err != nil {
+		return response.EncodeToBase64("", err)
+	}
+	return response.EncodeToBase64(stats, nil)
 }
 
 // Test Xray Config.
