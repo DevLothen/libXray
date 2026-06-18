@@ -173,6 +173,11 @@ type RunXrayFromJSONRequest struct {
 	ConfigJSON string `json:"configJSON,omitempty"`
 }
 
+type ReplaceXrayConfigRequest struct {
+	DatDir     string `json:"datDir,omitempty"`
+	ConfigJSON string `json:"configJSON,omitempty"`
+}
+
 // Create Xray Run Request
 func NewXrayRunRequest(datDir, configPath string) (string, error) {
 	request := RunXrayRequest{
@@ -233,6 +238,28 @@ func RunXrayFromJSON(base64Text string) string {
 	}
 	err = xray.RunXrayFromJSON(request.DatDir, request.ConfigJSON)
 	return response.EncodeToBase64("", err)
+}
+
+// Replace outbounds and related runtime config on the active Xray instance without restarting it.
+func ReplaceXrayConfig(base64Text string) string {
+	var response nodep.CallResponse[string]
+	req, err := base64.StdEncoding.DecodeString(base64Text)
+	if err != nil {
+		return response.EncodeToBase64("", err)
+	}
+
+	var request ReplaceXrayConfigRequest
+	err = json.Unmarshal(req, &request)
+	if err != nil {
+		return response.EncodeToBase64("", err)
+	}
+
+	result, err := xray.ReplaceConfig(request.DatDir, request.ConfigJSON)
+	if err != nil {
+		return response.EncodeToBase64("", err)
+	}
+
+	return response.EncodeToBase64(result, nil)
 }
 
 // Get Xray State

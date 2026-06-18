@@ -1,9 +1,11 @@
 package xray
 
 import (
+	"bytes"
 	"os"
 	"runtime/debug"
 	"strconv"
+	"sync"
 
 	"github.com/xtls/libxray/memory"
 	"github.com/xtls/xray-core/common/cmdarg"
@@ -13,16 +15,21 @@ import (
 )
 
 var (
-	coreServer *core.Instance
+	coreServer    *core.Instance
+	runtimeMu     sync.Mutex
+	runtimeConfig *core.Config
 )
 
-func StartXray(configPath string) (*core.Instance, error) {
+func loadConfigFromPath(configPath string) (*core.Config, error) {
 	file := cmdarg.Arg{configPath}
-	config, err := core.LoadConfig("json", file)
-	if err != nil {
-		return nil, err
-	}
+	return core.LoadConfig("json", file)
+}
 
+func loadConfigFromJSON(configJSON string) (*core.Config, error) {
+	return core.LoadConfig("json", bytes.NewReader([]byte(configJSON)))
+}
+
+func startServer(config *core.Config) (*core.Instance, error) {
 	server, err := core.New(config)
 	if err != nil {
 		return nil, err
@@ -31,16 +38,31 @@ func StartXray(configPath string) (*core.Instance, error) {
 	return server, nil
 }
 
-func StartXrayFromJSON(configJSON string) (*core.Instance, error) {
-	// Convert JSON string to bytes
-	configBytes := []byte(configJSON)
-
-	// Use core.StartInstance which can load configuration directly from bytes
-	server, err := core.StartInstance("json", configBytes)
+func StartXray(configPath string) (*core.Instance, error) {
+	config, err := loadConfigFromPath(configPath)
 	if err != nil {
 		return nil, err
 	}
 
+	return startServer(config)
+}
+
+func StartXrayFromJSON(configJSON string) (*core.Instance, error) {
+	config, err := loadConfigFromJSON(configJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	server, err := startServer(config)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := server.Start(); err != nil {
+		return nil, err
+	}
+
+	runtimeConfig = config
 	return server, nil
 }
 
@@ -59,9 +81,17 @@ func InitEnv(datDir string) {
 // datDir means the dir which geosite.dat and geoip.dat are in.
 // configPath means the config.json file path.
 func RunXray(datDir, configPath string) (err error) {
+	runtimeMu.Lock()
+	defer runtimeMu.Unlock()
+
 	InitEnv(datDir)
 	memory.InitForceFree()
-	coreServer, err = StartXray(configPath)
+	config, err := loadConfigFromPath(configPath)
+	if err != nil {
+		return
+	}
+
+	coreServer, err = startServer(config)
 	if err != nil {
 		return
 	}
@@ -70,6 +100,7 @@ func RunXray(datDir, configPath string) (err error) {
 		return
 	}
 
+	runtimeConfig = config
 	debug.FreeOSMemory()
 	return nil
 }
@@ -78,6 +109,9 @@ func RunXray(datDir, configPath string) (err error) {
 // datDir means the dir which geosite.dat and geoip.dat are in.
 // configJSON means the JSON configuration string.
 func RunXrayFromJSON(datDir, configJSON string) (err error) {
+	runtimeMu.Lock()
+	defer runtimeMu.Unlock()
+
 	InitEnv(datDir)
 	memory.InitForceFree()
 	coreServer, err = StartXrayFromJSON(configJSON)
@@ -96,9 +130,13 @@ func GetXrayState() bool {
 
 // Stop Xray instance.
 func StopXray() error {
+	runtimeMu.Lock()
+	defer runtimeMu.Unlock()
+
 	if coreServer != nil {
 		err := coreServer.Close()
 		coreServer = nil
+		runtimeConfig = nil
 		if err != nil {
 			return err
 		}
