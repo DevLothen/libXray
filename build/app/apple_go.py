@@ -123,6 +123,7 @@ class AppleGoBuilder(Builder):
                 self.tvos_targets[1].sdk,
                 [self.tvos_targets[1].apple_arch, self.tvos_targets[2].apple_arch],
             )
+            self.create_include_dir()
             self.create_framework()
         finally:
             try:
@@ -146,9 +147,6 @@ class AppleGoBuilder(Builder):
         output_dir = os.path.join(self.framework_dir, f"{sdk}-{apple_arch}")
         create_dir_if_not_exists(output_dir)
         output_file = os.path.join(output_dir, self.lib_file)
-        header_dir = os.path.join(output_dir, "Headers")
-        create_dir_if_not_exists(header_dir)
-        header_file = os.path.join(header_dir, self.lib_header_file)
         sdk_path = self.get_sdk_dir_path(sdk)
         min_version_flag = f"-m{sdk}-version-min={min_version}"
         flags = f"-isysroot {sdk_path} {min_version_flag} -arch {apple_arch}"
@@ -156,8 +154,8 @@ class AppleGoBuilder(Builder):
         run_env["GOOS"] = platform
         run_env["GOARCH"] = go_arch
         run_env["GOFLAGS"] = f"-tags={platform}"
-        run_env["CC"] = "clang"
-        run_env["CXX"] = "clang++"
+        run_env["CC"] = f"xcrun --sdk {sdk} --toolchain {sdk} clang"
+        run_env["CXX"] = f"xcrun --sdk {sdk} --toolchain {sdk} clang++"
         run_env["CGO_CFLAGS"] = flags
         run_env["CGO_CXXFLAGS"] = flags
         run_env["CGO_LDFLAGS"] = f"{flags} -Wl,-Bsymbolic-functions"
@@ -169,8 +167,6 @@ class AppleGoBuilder(Builder):
         cmd = [
             "go",
             "build",
-            "-buildvcs=false",
-            "-p=1",
             "-trimpath",  # Remove all file system paths
             "-ldflags",
             ldflags,
@@ -183,12 +179,6 @@ class AppleGoBuilder(Builder):
         ret = subprocess.run(cmd, env=run_env)
         if ret.returncode != 0:
             raise Exception(f"run_build_cmd for {platform} {apple_arch} {sdk} failed")
-
-        generated_header = os.path.join(output_dir, self.lib_header_file)
-        if os.path.exists(generated_header):
-            shutil.move(generated_header, header_file)
-        else:
-            raise Exception(f"Generated header file {generated_header} not found")
 
     def get_sdk_dir_path(self, sdk: str) -> str:
         cmd = [
@@ -222,23 +212,24 @@ class AppleGoBuilder(Builder):
         if ret.returncode != 0:
             raise Exception(f"merge_static_lib for {sdk} failed")
 
-        header_dir = os.path.join(output_dir, "Headers")
-        create_dir_if_not_exists(header_dir)
-        source_header = os.path.join(
+    def create_include_dir(self):
+        include_dir = os.path.join(self.framework_dir, "include")
+        create_dir_if_not_exists(include_dir)
+
+        target = self.ios_targets[0]
+        header_file = os.path.join(
             self.framework_dir,
-            f"{sdk}-{arches[0]}",
-            "Headers",
+            f"{target.sdk}-{target.apple_arch}",
             self.lib_header_file,
         )
-        target_header = os.path.join(header_dir, self.lib_header_file)
-        shutil.copy(source_header, target_header)
+        shutil.copy(header_file, include_dir)
 
         module_map_file = os.path.join(
             self.build_dir,
             "template",
             self.module_map_file,
         )
-        shutil.copy(module_map_file, header_dir)
+        shutil.copy(module_map_file, include_dir)
 
     def create_framework(self):
         libs = [
@@ -248,44 +239,11 @@ class AppleGoBuilder(Builder):
             f"{self.tvos_targets[0].sdk}-{self.tvos_targets[0].apple_arch}",
             f"{self.tvos_targets[1].sdk}-{self.tvos_targets[1].apple_arch}-{self.tvos_targets[2].apple_arch}",
         ]
+        include_dir = os.path.join(self.framework_dir, "include")
         cmd = ["xcodebuild", "-create-xcframework"]
         for lib in libs:
             lib_path = os.path.join(self.framework_dir, lib, self.lib_file)
-            header_dir = os.path.join(self.framework_dir, lib, "Headers")
-            header_file = os.path.join(header_dir, self.lib_header_file)
-            framework_dir = os.path.join(self.framework_dir, lib, "LibXray.framework")
-            framework_headers_dir = os.path.join(framework_dir, "Headers")
-            framework_modules_dir = os.path.join(framework_dir, "Modules")
-
-            if not os.path.exists(lib_path) or not os.path.exists(header_file):
-                raise Exception(f"Library or header file not found for {lib}")
-
-            create_dir_if_not_exists(framework_dir)
-            create_dir_if_not_exists(framework_headers_dir)
-            create_dir_if_not_exists(framework_modules_dir)
-
-            shutil.copy(lib_path, os.path.join(framework_dir, "LibXray"))
-            shutil.copy(
-                header_file,
-                os.path.join(framework_headers_dir, self.lib_header_file),
-            )
-
-            module_map_path = os.path.join(framework_modules_dir, self.module_map_file)
-            with open(module_map_path, "w") as module_map:
-                module_map.write(
-                    "\n".join(
-                        [
-                            "framework module LibXray {",
-                            '    umbrella header "libXray.h"',
-                            "    export *",
-                            "    module * { export * }",
-                            "}",
-                            "",
-                        ]
-                    )
-                )
-
-            cmd.extend(["-framework", framework_dir])
+            cmd.extend(["-library", lib_path, "-headers", include_dir])
 
         output_file = os.path.join(self.lib_dir, "LibXray.xcframework")
 
