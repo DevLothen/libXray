@@ -155,8 +155,8 @@ class AppleGoBuilder(Builder):
         run_env["GOOS"] = platform
         run_env["GOARCH"] = go_arch
         run_env["GOFLAGS"] = f"-tags={platform}"
-        run_env["CC"] = f"xcrun --sdk {sdk} --toolchain {sdk} clang"
-        run_env["CXX"] = f"xcrun --sdk {sdk} --toolchain {sdk} clang++"
+        run_env["CC"] = "clang"
+        run_env["CXX"] = "clang++"
         run_env["CGO_CFLAGS"] = flags
         run_env["CGO_CXXFLAGS"] = flags
         run_env["CGO_LDFLAGS"] = f"{flags} -Wl,-Bsymbolic-functions"
@@ -212,6 +212,8 @@ class AppleGoBuilder(Builder):
         cmd = [
             "go",
             "build",
+            "-buildvcs=false",
+            "-p=1",
             "-trimpath",  # Remove all file system paths
             "-ldflags",
             ldflags,
