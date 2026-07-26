@@ -29,8 +29,8 @@ type ReplaceConfigResult struct {
 }
 
 func ReplaceConfig(datDir, configJSON string) (string, error) {
-	runtimeMu.Lock()
-	defer runtimeMu.Unlock()
+	coreServerMu.Lock()
+	defer coreServerMu.Unlock()
 
 	if coreServer == nil || !coreServer.IsRunning() {
 		return "", errors.New("xray is not running")

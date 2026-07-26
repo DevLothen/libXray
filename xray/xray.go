@@ -2,6 +2,7 @@ package xray
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -15,10 +16,12 @@ import (
 )
 
 var (
+	coreServerMu  sync.Mutex
 	coreServer    *core.Instance
-	runtimeMu     sync.Mutex
 	runtimeConfig *core.Config
 )
+
+var ErrAlreadyRunning = errors.New("xray is already running")
 
 func loadConfigFromPath(configPath string) (*core.Config, error) {
 	file := cmdarg.Arg{configPath}
@@ -53,52 +56,46 @@ func StartXrayFromJSON(configJSON string) (*core.Instance, error) {
 		return nil, err
 	}
 
-	server, err := startServer(config)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := server.Start(); err != nil {
-		return nil, err
-	}
-
-	runtimeConfig = config
-	return server, nil
+	return startServer(config)
 }
 
-// SetTunFd sets the TUN file descriptor.
-// Call this BEFORE RunXray/RunXrayFromJSON.
 func SetTunFd(fd int32) {
 	os.Setenv(platform.TunFdKey, strconv.Itoa(int(fd)))
 }
 
 func InitEnv(datDir string) {
+	if datDir == "" {
+		return
+	}
 	os.Setenv(platform.AssetLocation, datDir)
 	os.Setenv(platform.CertLocation, datDir)
 }
 
 // Run Xray instance.
-// datDir means the dir which geosite.dat and geoip.dat are in.
 // configPath means the config.json file path.
-func RunXray(datDir, configPath string) (err error) {
-	runtimeMu.Lock()
-	defer runtimeMu.Unlock()
+func RunXray(configPath string) (err error) {
+	coreServerMu.Lock()
+	defer coreServerMu.Unlock()
+	if coreServer != nil {
+		return ErrAlreadyRunning
+	}
 
-	InitEnv(datDir)
 	memory.InitForceFree()
 	config, err := loadConfigFromPath(configPath)
 	if err != nil {
 		return
 	}
 
-	coreServer, err = startServer(config)
+	server, err := startServer(config)
 	if err != nil {
 		return
 	}
 
-	if err = coreServer.Start(); err != nil {
+	if err = server.Start(); err != nil {
+		_ = server.Close()
 		return
 	}
+	coreServer = server
 
 	runtimeConfig = config
 	debug.FreeOSMemory()
@@ -106,18 +103,30 @@ func RunXray(datDir, configPath string) (err error) {
 }
 
 // Run Xray instance with JSON configuration string.
-// datDir means the dir which geosite.dat and geoip.dat are in.
 // configJSON means the JSON configuration string.
-func RunXrayFromJSON(datDir, configJSON string) (err error) {
-	runtimeMu.Lock()
-	defer runtimeMu.Unlock()
-
-	InitEnv(datDir)
+func RunXrayFromJSON(configJSON string) (err error) {
+	coreServerMu.Lock()
+	defer coreServerMu.Unlock()
+	if coreServer != nil {
+		return ErrAlreadyRunning
+	}
 	memory.InitForceFree()
-	coreServer, err = StartXrayFromJSON(configJSON)
+	config, err := loadConfigFromJSON(configJSON)
 	if err != nil {
 		return
 	}
+
+	server, err := startServer(config)
+	if err != nil {
+		return
+	}
+
+	if err = server.Start(); err != nil {
+		_ = server.Close()
+		return
+	}
+	coreServer = server
+	runtimeConfig = config
 
 	debug.FreeOSMemory()
 	return nil
@@ -125,14 +134,15 @@ func RunXrayFromJSON(datDir, configJSON string) (err error) {
 
 // Get Xray State
 func GetXrayState() bool {
+	coreServerMu.Lock()
+	defer coreServerMu.Unlock()
 	return coreServer != nil && coreServer.IsRunning()
 }
 
 // Stop Xray instance.
 func StopXray() error {
-	runtimeMu.Lock()
-	defer runtimeMu.Unlock()
-
+	coreServerMu.Lock()
+	defer coreServerMu.Unlock()
 	if coreServer != nil {
 		err := coreServer.Close()
 		coreServer = nil

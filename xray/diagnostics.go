@@ -59,7 +59,6 @@ type ObservatoryDiagnostics struct {
 	TotalCount int                             `json:"totalCount"`
 	Statuses   []OutboundStatusDiagnostics     `json:"statuses,omitempty"`
 	Settings   *ObservatorySettingsDiagnostics `json:"settings,omitempty"`
-	Internet   *ObservatoryInternetDiagnostics `json:"internet,omitempty"`
 	Error      string                          `json:"error,omitempty"`
 }
 
@@ -68,17 +67,12 @@ type ObservatorySettingsDiagnostics struct {
 }
 
 type ObservatoryHealthPingSettings struct {
-	Destination        string   `json:"destination,omitempty"`
-	Connectivity       string   `json:"connectivity,omitempty"`
-	ConnectivityChecks []string `json:"connectivityChecks,omitempty"`
-	Interval           int64    `json:"interval,omitempty"`
-	SamplingCount      int32    `json:"samplingCount,omitempty"`
-	Timeout            int64    `json:"timeout,omitempty"`
-	HttpMethod         string   `json:"httpMethod,omitempty"`
-}
-
-type ObservatoryInternetDiagnostics struct {
-	Available bool   `json:"available"`
+	Destination   string `json:"destination,omitempty"`
+	Connectivity  string `json:"connectivity,omitempty"`
+	Interval      int64  `json:"interval,omitempty"`
+	SamplingCount int32  `json:"samplingCount,omitempty"`
+	Timeout       int64  `json:"timeout,omitempty"`
+	HttpMethod    string `json:"httpMethod,omitempty"`
 }
 
 type OutboundStatusDiagnostics struct {
@@ -314,7 +308,6 @@ func readObservatoryDiagnostics() *ObservatoryDiagnostics {
 	if settings := readObservatorySettings(observatoryFeature); settings != nil {
 		diagnostics.Settings = settings
 	}
-	diagnostics.Internet = readObservatoryInternetDiagnostics(observatoryFeature)
 
 	observation, err := observatoryFeature.GetObservation(context.Background())
 	if err != nil {
@@ -411,44 +404,12 @@ func readBurstHealthPingSettings(observer *burstobservatory.Observer) *Observato
 	}
 
 	return &ObservatoryHealthPingSettings{
-		Destination:        healthPing.Settings.Destination,
-		Connectivity:       healthPing.Settings.Connectivity,
-		ConnectivityChecks: append([]string(nil), healthPing.Settings.ConnectivityChecks...),
-		Interval:           int64(healthPing.Settings.Interval),
-		SamplingCount:      int32(healthPing.Settings.SamplingCount),
-		Timeout:            int64(healthPing.Settings.Timeout),
-		HttpMethod:         healthPing.Settings.HttpMethod,
-	}
-}
-
-func readObservatoryInternetDiagnostics(observatoryFeature extensionfeature.Observatory) *ObservatoryInternetDiagnostics {
-	switch observer := observatoryFeature.(type) {
-	case *burstobservatory.Observer:
-		return readBurstObservatoryInternetDiagnostics(observer)
-	default:
-		return nil
-	}
-}
-
-func readBurstObservatoryInternetDiagnostics(observer *burstobservatory.Observer) *ObservatoryInternetDiagnostics {
-	value := reflect.ValueOf(observer)
-	if value.Kind() != reflect.Ptr || value.IsNil() {
-		return nil
-	}
-
-	healthCheckerField := exposeValue(value.Elem().FieldByName("hp"))
-	if !healthCheckerField.IsValid() || healthCheckerField.IsNil() {
-		return nil
-	}
-
-	healthPing, ok := healthCheckerField.Interface().(*burstobservatory.HealthPing)
-	if !ok || healthPing == nil {
-		return nil
-	}
-
-	snapshot := healthPing.InternetStateSnapshot()
-	return &ObservatoryInternetDiagnostics{
-		Available: snapshot.Available,
+		Destination:   healthPing.Settings.Destination,
+		Connectivity:  healthPing.Settings.Connectivity,
+		Interval:      int64(healthPing.Settings.Interval),
+		SamplingCount: int32(healthPing.Settings.SamplingCount),
+		Timeout:       int64(healthPing.Settings.Timeout),
+		HttpMethod:    healthPing.Settings.HttpMethod,
 	}
 }
 

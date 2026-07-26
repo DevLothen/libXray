@@ -40,7 +40,7 @@ Compile script. It is recommended to always use this script to compile libXray. 
 
 depends on git and go.
 
-By default, the build script does not clone [Xray-core](https://github.com/XTLS/Xray-core). It uses Go modules and pins Xray-core to tag `v26.6.1` (recorded by Go as the matching pseudo-version).
+By default, the build script does not clone [Xray-core](https://github.com/XTLS/Xray-core). It uses Go modules and pins Xray-core to release tag `v26.7.11` through its pseudo-version.
 Pass the optional `local` argument to use an existing local checkout at `../Xray-core` through a Go module `replace`.
 
 ### Usage
@@ -92,7 +92,8 @@ This works well when you use ffi for integration. For example, integration with 
 
 Support iOS, iOSSimulator, macOS, tvOS.
 
-Note: The product `LibXray.xcframework` does not contain **module.modulemap**. When using swift, you need to create a bridge file.
+The product `LibXray.xcframework` contains **module.modulemap**. When using
+Swift, import it as module `LibXray`.
 
 ### Linux
 
@@ -100,32 +101,92 @@ depend on gcc and g++.
 
 ### Windows
 
-depend on MinGW.
+depend on LLVM MinGW.
 
-you can use winget to install [LLVM MinGW](https://github.com/mstorsjo/llvm-mingw) or [WinLibs](https://github.com/brechtsanders/winlibs_mingw) .
+you can use winget to install [LLVM MinGW](https://github.com/mstorsjo/llvm-mingw).
 
 ```shell
 winget install MartinStorsjo.LLVM-MinGW.UCRT
-winget install BrechtSanders.WinLibs.POSIX.UCRT
+```
+
+## API
+
+libXray exposes a single structured entrypoint:
+
+```go
+func Invoke(requestJSON string) string
+```
+
+The C export is:
+
+```c
+char* CGoInvoke(char* requestJSON);
+void CGoFree(char* value);
+```
+
+`CGoInvoke` allocates its response. The caller must release every non-null
+response with `CGoFree`; do not use a platform allocator directly.
+
+The request is a JSON object:
+
+```json
+{
+  "apiVersion": 1,
+  "method": "runXray",
+  "payload": {
+    "configPath": "/path/to/config.json"
+  }
+}
+```
+
+The response is a JSON object:
+
+```json
+{
+  "success": true,
+  "data": {},
+  "error": ""
+}
+```
+
+Design notes:
+
+1. A top-level `env` field is ignored and has no effect. Xray-core runtime
+   environment options belong in the root `env` object of the Xray config.
+2. `SetTunFd` has been removed. When the fd is only known at runtime, write
+   `xray.tun.fd` into the Xray config root `env` object before calling
+   `runXray`.
+3. `countGeoData` is not backed by an Xray config, so its `datDir` is passed in
+   the method payload.
+4. The complete UTF-8 encoded Invoke request and response JSON envelopes are
+   limited to 16 MiB. If either limit is exceeded, Invoke returns a failure
+   response with `success: false`, `data: null`, and a size-limit error.
+
+Supported methods:
+
+```text
+getFreePorts
+convertShareLinksToXrayJson
+convertXrayJsonToShareLinks
+countGeoData
+ping
+testXray
+runXray
+runXrayFromJson
+stopXray
+xrayVersion
+getXrayState
 ```
 
 ## controller
 
 Used to solve the socket protect problem on Android.
 
-## dns
-
-Used to solve server address resolution issues on Android, Linux, and Windows. If not handled, the DNS traffic will be resent to the tun device, resulting in failure to initiate a connection.
-
 ## geo
 
 ### count
 
 Read geo files and count the categories and rules.
-
-### read
-
-Read the Xray Json configuration and extract the geo file name used.
 
 ## main
 
@@ -144,10 +205,6 @@ Write data to a file.
 ### measure
 
 Speed ​​test the Xray configuration.
-
-### model
-
-The response body of the wrapper interface.
 
 ### port
 
@@ -185,15 +242,14 @@ Some tools used to parse shared links.
 
 Latency testing.
 
-### stats
+### metrics
 
 Refer to the following configuration:
 
 ```json
 {
   "metrics" : {
-    "tag" : "metrics",
-    "listen": "[::1]:49227",
+    "listen": "127.0.0.1:49227"
   },
   "policy" : {
     "system" : {
@@ -207,11 +263,18 @@ Refer to the following configuration:
 }
 ```
 
+The metrics server exposes the Xray runtime counters through HTTP. For example,
+when `listen` is `127.0.0.1:49227`, read:
+
+```text
+http://localhost:49227/debug/vars
+```
+
 Note:
 
 1. When testing latency or validating configuration, make sure `metrics` is `null`.
 
-2. When enabling metrics, the Xray-core instance needs to be run in a **child process**.
+2. Metrics only needs the `listen` field in this wrapper. Query `/debug/vars` directly with an HTTP client instead of going through libXray.
 
 ### validation
 
@@ -220,14 +283,6 @@ Verify the Xray configuration.
 ### xray
 
 Start and stop Xray instances.
-
-## nodep_wrapper
-
-export nodep.
-
-### xray_wrapper
-
-export xray.
 
 # Credits
 
